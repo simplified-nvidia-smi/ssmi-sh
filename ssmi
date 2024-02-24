@@ -28,10 +28,12 @@ while [ $# -gt 0 ]; do
 done
 
 # if no flags were passed set both to 1 (true)
-if [ -z "$display_gpus" ] && [ -z "$display_procs" ]; then
+if [ "$display_gpus" -eq 0 ] && [ "$display_procs" -eq 0 ]; then
     display_gpus=1
     display_procs=1
 fi
+
+echo $display_procs $display_gpus
 
 # check if command exists
 if ! command -v nvidia-smi >/dev/null 2>&1; then
