@@ -1,15 +1,16 @@
 #!/bin/sh
 
+# function to slice strings
 extract_substring() {
     input_string="$1"
     slice="$2"
-
+    # newline characters are removed
     printf "%s" "$input_string" | cut -c "$slice" | tr -d '\n'
 }
 
 display_gpus=0
 display_procs=0
-
+# parse arguments and set appropriate flags
 while [ $# -gt 0 ]; do
     case "$1" in
     -g | --gpus)
@@ -26,35 +27,48 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# if no flags were passed set both to 1 (true)
 if [ -z "$display_gpus" ] && [ -z "$display_procs" ]; then
     display_gpus=1
     display_procs=1
 fi
 
+# check if command exists
 if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "ERROR: nvidia-smi not found" >&2
     exit 1
 fi
 
+# capture output of command
 nvidia_smi_output=$(nvidia-smi)
 
+# check return code
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to run nvidia-smi" >&2
     exit 1
 fi
 
-current_section='gpu_header' # Initialize current section
+# the current_section varible is used to keep track of which section of the
+# output is being processed
+current_section='gpu_header'
+# counter for various usage
 counter=0
 
+# loop over each line in the output
 printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
     case $current_section in
+    # Process the GPU header lines here
+    # +---------------------------------------------------------------------------------------+
+    # | NVIDIA-SMI 535.154.05             Driver Version: 535.154.05   CUDA Version: 12.2     |
+    # |-----------------------------------------+----------------------+----------------------+
     'gpu_header')
-        # Process the GPU header lines here
+        # if on the last line handle switching sections
         if [ $counter -eq 3 ]; then
             [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
             counter=0
             current_section='gpus'
             continue
+        # print all header lines except for the time and date line
         elif [ $counter -ne 0 ]; then
             [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
         fi
@@ -63,12 +77,14 @@ printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
         case $counter in
         0)
             case "$line" in
+            # The line is either empty or contains non-space characters
             *[![:space:]]*)
-                # The line is either empty or contains non-space characters
+                # prints "| GPU "
                 [ $display_gpus -eq 1 ] && extract_substring "$line" 1-6
                 ;;
+                # The line contains only whitespace characters which signals the end
+                # of the section
             "" | *[[:space:]]*)
-                # The line contains only whitespace characters
                 counter=0
                 current_section='proc_header'
                 continue
@@ -76,15 +92,20 @@ printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
             esac
             ;;
         1)
+            # prints " Fan  Temp "
             [ $display_gpus -eq 1 ] && extract_substring "$line" 2-12
+            # prints " Perf "
             [ $display_gpus -eq 1 ] && extract_substring "$line" 14-19
+            # prints "      Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |"
             [ $display_gpus -eq 1 ] && extract_substring "$line" 24-
-            [ $display_gpus -eq 1 ] && echo # add newline
+            # add newline
+            [ $display_gpus -eq 1 ] && echo
             ;;
         2)
             #  skip blank line
             ;;
         3)
+            # prints block seperator "...-----..."
             [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
             counter=0
             continue
@@ -97,17 +118,22 @@ printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
         [ $display_procs -eq 0 ] && exit 0
         case $counter in
         0)
+            # if the gpu details were not printed out print the header for the
+            # process table
             if [ $display_gpus -ne 1 ]; then
                 printf "%s\n" "$line"
             fi
             ;;
         1)
-            #  skip blank line
+            #  skip the line that just says processes
             ;;
         2)
+            # print the process table column headers
+            # "|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |"
             printf "%s\n" "$line"
             ;;
         3)
+            # switch section
             counter=0
             current_section='procs'
             ;;
@@ -115,9 +141,11 @@ printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
         esac
         ;;
     'procs')
+        # print out remaining lines
         printf "%s\n" "$line"
         ;;
     *) ;;
     esac
+    # increment counter
     counter=$((counter + 1))
 done
