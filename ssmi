@@ -98,7 +98,7 @@ printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
         case $counter in
         0)
             if [ $display_gpus -ne 1 ]; then
-              printf "%s\n" "$line"
+                printf "%s\n" "$line"
             fi
             ;;
         1)
