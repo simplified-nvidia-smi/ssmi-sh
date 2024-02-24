@@ -1,0 +1,123 @@
+#!/bin/sh
+
+extract_substring() {
+    input_string="$1"
+    slice="$2"
+
+    printf "%s" "$input_string" | cut -c "$slice" | tr -d '\n'
+}
+
+display_gpus=0
+display_procs=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -g | --gpus)
+        display_gpus=1
+        ;;
+    -p | --procs)
+        display_procs=1
+        ;;
+    *)
+        echo "Unknown option: $1"
+        exit 1
+        ;;
+    esac
+    shift
+done
+
+if [ -z "$display_gpus" ] && [ -z "$display_procs" ]; then
+    display_gpus=1
+    display_procs=1
+fi
+
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "ERROR: nvidia-smi not found" >&2
+    exit 1
+fi
+
+nvidia_smi_output=$(nvidia-smi)
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to run nvidia-smi" >&2
+    exit 1
+fi
+
+current_section='gpu_header' # Initialize current section
+counter=0
+
+printf "%s\n" "$nvidia_smi_output" | while IFS= read -r line; do
+    case $current_section in
+    'gpu_header')
+        # Process the GPU header lines here
+        if [ $counter -eq 3 ]; then
+            [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
+            counter=0
+            current_section='gpus'
+            continue
+        elif [ $counter -ne 0 ]; then
+            [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
+        fi
+        ;;
+    'gpus')
+        case $counter in
+        0)
+            case "$line" in
+            *[![:space:]]*)
+                # The line is either empty or contains non-space characters
+                [ $display_gpus -eq 1 ] && extract_substring "$line" 1-6
+                ;;
+            "" | *[[:space:]]*)
+                # The line contains only whitespace characters
+                counter=0
+                current_section='proc_header'
+                continue
+                ;;
+            esac
+            ;;
+        1)
+            [ $display_gpus -eq 1 ] && extract_substring "$line" 2-12
+            [ $display_gpus -eq 1 ] && extract_substring "$line" 14-19
+            [ $display_gpus -eq 1 ] && extract_substring "$line" 24-
+            [ $display_gpus -eq 1 ] && echo # add newline
+            ;;
+        2)
+            #  skip blank line
+            ;;
+        3)
+            [ $display_gpus -eq 1 ] && printf "%s\n" "$line"
+            counter=0
+            continue
+            ;;
+        *) ;;
+        esac
+        ;;
+    'proc_header')
+        # if not displaying process exit now
+        [ $display_procs -eq 0 ] && exit 0
+        case $counter in
+        0)
+            if [ $display_gpus -ne 1 ]; then
+              printf "%s\n" "$line"
+            fi
+            ;;
+        1)
+            #  skip blank line
+            ;;
+        2)
+            printf "%s\n" "$line"
+            ;;
+        3)
+            counter=0
+            current_section='procs'
+            ;;
+        *) ;;
+        esac
+        ;;
+    'procs')
+        printf "%s\n" "$line"
+        ;;
+    *) ;;
+    esac
+    counter=$((counter + 1))
+done
